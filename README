@@ -1,0 +1,105 @@
+NAME
+    srcat - Concat multiple JavaScript source files and replace <script>
+    tags in your HTML file
+
+INSTALL
+        perl Makefile.PL
+        make
+        make install
+
+SYNOPSIS
+    In your.html:
+
+        <html>
+        <body>
+        <!-- #srcat-js# -->
+        <script type="text/javascript" src="first.js"></script>
+        <script type="text/javascript" src="second.js"></script>
+        <!-- #/srcat-js# -->
+        </body>
+        </html>
+
+    first.js:
+
+        document.writeln('first!');
+
+    second.js:
+
+        document.writeln('second!!');
+
+    Then, in your command-line, do as follows:
+
+        $ srcat your.html
+
+    Now, your.html is:
+
+        <html>
+        <body>
+        <script type="text/javascript" src="srcat-0.js"></script>
+        </body>
+        </html>
+
+    and srcat-0.js is:
+
+        document.writeln('first!');
+        document.writeln('second!!');
+
+    Also, "<!-- #srcat-css# -->" ... "<!-- #/srcat-css# -->" block is
+    available to concat CSS files.
+
+COMMAND LINE PARAMETERS
+  -b *POSTFIX* | --backup *POSTFIX*
+    Make backup files. That is, srcat makes a copy for each specified file
+    before overwriting it. The names of it is the original file name
+    followed by *POSTFIX*.
+
+    Default: does not make backups
+
+    Example:
+
+        srcat -b .bak some.html
+
+  -o *TEMPLATE* | --out *TEMPLATE*
+    Specifies file name template of concated script. Output file is named
+    *TEMPLATE* follwed by ".js". %d is replaced with sequencial digit
+    starting with 0. For example, by default, the first "<!-- #srcat-js#
+    -->" block is replaced with srcat-0.js and the second block is replaced
+    with srcat-1.js... and so on.
+
+    Default: srcat-%d
+
+    Example:
+
+        srcat --out "myapp-%d" myapp.html
+
+  -J *COMMAND* | --js-minifier *COMMAND*
+    Minify concated JavaScript source with COMMAND. COMMAND must be filter
+    command, which accepts concated script by STDIN and output minified
+    script to STDOUT.
+
+    Default: does not minify scripts
+
+    Example:
+
+        srcat -J "java -jar yuicompressor.jar --type js" another.html
+
+  -C *COMMAND* | --css-minifier *COMMAND*
+    Minify concated CSS source with COMMAND. COMMAND must be filter command,
+    which accepts concated script by STDIN and output minified script to
+    STDOUT.
+
+    Default: does not minify scripts
+
+    Example:
+
+        srcat -C "java -jar yuicompressor.jar --type css" another.html
+
+AUTHOR
+    Daisuke (yet another) Maki <yanother@cpan.org>
+
+COPYRIGHT
+    Copyright 2010 Daisuke (yet another) Maki.
+
+    This program is free software; you can redistribute it and/or modify it
+    under the same terms as Perl itself.
+

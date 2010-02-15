@@ -1,0 +1,271 @@
+#!/usr/bin/perl
+
+use strict;
+
+our $VERSION = "0.02";
+
+use Getopt::Compact;
+use IO::All;
+use File::Copy;
+use File::Spec;
+use File::Basename;
+use HTML::Parser;
+
+our %opts;
+*opts = new Getopt::Compact(
+    name => 'srcat',
+    struct => [
+        [[qw(b backup)]      , "postfix of backupfile (if not specified, don't make backup)", ':s'],
+        [[qw(o out)]         , "output template (default: srcat-%d)"                        , ':s'],
+        [[qw(J js-minifier)] , "JavaScript minifier (filter-command)"                       , ':s'],
+        [[qw(C css-minifier)], "CSS minifier (filter-command)"                              , ':s'],
+    ]
+)->opts;
+
+$opts{out}            ||= 'srcat-%d';
+$opts{'js-minifier'}  ||= 'cat';
+$opts{'css-minifier'} ||= 'cat';
+
+my $count = 0;
+
+foreach my $file ( @ARGV ) {
+    copy $file, "$file$opts{backup}"  or die "Can't copy file $file -> $file$opts{backup}: $!"  if length $opts{backup};
+    
+    my $dir = dirname $file;
+    my $source < io($file);
+    my $out = io("$file");
+    '' > $out;
+    
+    my @files;
+    my ($comment_handler_start, $comment_handler_js_end, $comment_handler_css_end);
+    $comment_handler_start = sub {
+        my $self = shift;
+        local $_ = shift;
+        if ( /^<!--\s*#srcat-js#\s*-->$/i ) {
+            @files = ();
+            my $is_script_started = 0;
+            $self->handler(start => sub{
+                my ($text, $tagname, $attr) = @_;
+                if ( $tagname eq 'script' && $attr->{type} =~ /javascript/i && $attr->{src} ) {
+                    $is_script_started = 1;
+                    push @files, $attr->{src};
+                } else {
+                    $text >> $out;
+                }
+            }, 'text, tagname, attr');
+            $self->handler(end => sub{
+                my ($text, $tagname) = @_;
+                if ( $is_script_started && $tagname eq 'script' ) {
+                    $is_script_started = 0;
+                } else {
+                    $text >> $out;
+                }
+            }, 'text, tagname');
+            $self->handler(comment => $comment_handler_js_end, 'self, text');
+        } elsif ( /^<!--\s*#srcat-css#\s*-->$/i ) {
+            @files = ();
+            my $is_link_started = 0;
+            $self->handler(start => sub{
+                my ($text, $tagname, $attr) = @_;
+                if ( $tagname eq 'link' && $attr->{rel} =~ /^stylesheet$/i && $attr->{type} =~ m{^text/css$}i && $attr->{href} ) {
+                    $is_link_started = 1;
+                    push @files, $attr->{href};
+                } else {
+                    $text >> $out;
+                }
+            }, 'text, tagname, attr');
+            $self->handler(end => sub{
+                my ($text, $tagname) = @_;
+                if ( $is_link_started && $tagname eq 'link' ) {
+                    $is_link_started = 0;
+                } else {
+                    $text >> $out;
+                }
+            }, 'text, tagname');
+            $self->handler(comment => $comment_handler_css_end, 'self, text');
+        } else {
+            $_ >> $out;
+        }
+    };
+    
+    $comment_handler_js_end = sub {
+        my $self = shift;
+        local $_ = shift;
+        if ( m{^<!--\s*#/srcat-js#\s*-->$}i ) {
+            if ( @files ) {
+                my $outfile = sprintf "$opts{out}.js", $count++;
+                my $jsout = io("| $opts{'js-minifier'} > " . File::Spec->catfile($dir, $outfile));
+                foreach ( @files ) {
+                    my $file = File::Spec->catfile($dir, $_);
+                    io($file) > $jsout;
+                    print "$file\n";
+                }
+                qq{<script type="text/javascript" src="$outfile"></script>} >> $out;
+            }
+            $self->handler(start   => undef);
+            $self->handler(end     => undef);
+            $self->handler(comment => $comment_handler_start, 'self, text');
+        } else {
+            $_ >> $out;
+        }
+    };
+    
+    $comment_handler_css_end = sub {
+        my $self = shift;
+        local $_ = shift;
+        if ( m{^<!--\s*#/srcat-css#\s*-->$}i ) {
+            if ( @files ) {
+                my $outfile = sprintf "$opts{out}.css", $count++;
+                my $jsout = io("| $opts{'css-minifier'} > " . File::Spec->catfile($dir, $outfile));
+                foreach ( @files ) {
+                    my $file = File::Spec->catfile($dir, $_);
+                    io($file) > $jsout;
+                    print "$file\n";
+                }
+                qq{<link rel="stylesheet" type="text/css" href="$outfile" />} >> $out;
+            }
+            $self->handler(start   => undef);
+            $self->handler(end     => undef);
+            $self->handler(comment => $comment_handler_start, 'self, text');
+        } else {
+            $_ >> $out;
+        }
+    };
+    
+    
+    my $parser = HTML::Parser->new(
+        api_version => 3,
+        default_h => [sub{ shift >> $out }  , 'text'      ],
+        comment_h => [$comment_handler_start, 'self, text'],
+    );
+    $parser->parse($source);
+    $parser->eof;
+}
+
+
+
+__END__
+
+=head1 NAME
+
+srcat - Concat multiple JavaScript source files and replace <script> 
+tags in your HTML file
+
+
+=head1 INSTALL
+
+    perl Makefile.PL
+    make
+    make install
+
+
+=head1 SYNOPSIS
+
+In your.html:
+
+    <html>
+    <body>
+    <!-- #srcat-js# -->
+    <script type="text/javascript" src="first.js"></script>
+    <script type="text/javascript" src="second.js"></script>
+    <!-- #/srcat-js# -->
+    </body>
+    </html>
+
+first.js:
+
+    document.writeln('first!');
+
+second.js:
+
+    document.writeln('second!!');
+
+Then, in your command-line, do as follows:
+
+    $ srcat your.html
+
+Now, your.html is:
+
+    <html>
+    <body>
+    <script type="text/javascript" src="srcat-0.js"></script>
+    </body>
+    </html>
+
+and srcat-0.js is:
+
+    document.writeln('first!');
+    document.writeln('second!!');
+
+Also, C<< <!-- #srcat-css# --> >> ... C<< <!-- #/srcat-css# --> >> 
+block is available to concat CSS files.
+
+
+=head1 COMMAND LINE PARAMETERS
+
+=head2 -b I<POSTFIX> | --backup I<POSTFIX>
+
+Make backup files. That is, srcat makes a copy for each specified file 
+before overwriting it. The names of it is the original file name 
+followed by I<POSTFIX>.
+
+Default: does not make backups
+
+Example:
+
+    srcat -b .bak some.html
+
+=head2 -o I<TEMPLATE> | --out I<TEMPLATE>
+
+Specifies file name template of concated script. Output file is named 
+I<TEMPLATE> follwed by C<.js>.
+%d is replaced with sequencial digit starting with 0. For example, 
+by default, the first C<< <!-- #srcat-js# --> >> block is replaced 
+with srcat-0.js and the second block is replaced with srcat-1.js... 
+and so on.
+
+Default: srcat-%d
+
+Example:
+
+    srcat --out "myapp-%d" myapp.html
+
+=head2 -J I<COMMAND> | --js-minifier I<COMMAND>
+
+Minify concated JavaScript source with COMMAND.
+COMMAND must be filter command, which accepts concated script by STDIN 
+and output minified script to STDOUT.
+
+Default: does not minify scripts
+
+Example:
+
+    srcat -J "java -jar yuicompressor.jar --type js" another.html
+
+=head2 -C I<COMMAND> | --css-minifier I<COMMAND>
+
+Minify concated CSS source with COMMAND.
+COMMAND must be filter command, which accepts concated script by STDIN 
+and output minified script to STDOUT.
+
+Default: does not minify scripts
+
+Example:
+
+    srcat -C "java -jar yuicompressor.jar --type css" another.html
+
+
+=head1 AUTHOR
+
+Daisuke (yet another) Maki E<lt>yanother@cpan.orgE<gt>
+
+
+=head1 COPYRIGHT
+
+Copyright 2010 Daisuke (yet another) Maki.
+
+This program is free software; you can redistribute it and/or
+modify it under the same terms as Perl itself.
+
+
+=cut

@@ -1,0 +1,29 @@
+---
+abstract: 'Concat multiple JavaScript source files and replace <script> '
+author:
+  - 'Daisuke (yet another) Maki <yanother@cpan.org>'
+build_requires:
+  ExtUtils::MakeMaker: 6.42
+  Test::More: 0.42
+configure_requires:
+  ExtUtils::MakeMaker: 6.42
+distribution_type: module
+generated_by: 'Module::Install version 0.93'
+license: perl
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: srcat
+no_index:
+  directory:
+    - inc
+requires:
+  File::Basename: 0
+  File::Copy: 0
+  File::Spec: 0
+  Getopt::Compact: 0.04
+  HTML::Parser: 3.64
+  IO::All: 0.39
+resources:
+  license: http://dev.perl.org/licenses/
+version: 0.02
